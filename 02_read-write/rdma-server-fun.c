@@ -1,32 +1,27 @@
-#include "rdma-common.h"
+#include "rdma-server-fun.h"
+
+extern struct bucket * bucketDocker1;
+extern struct hashTable * hashtable1;
 
 static const int RDMA_BUFFER_SIZE = 1024;
-
-struct message {
-  enum {
-    MSG_MR,
-    MSG_DONE
-  } type;
-
-  union {
-    struct ibv_mr mr;
-  } data;
-};
 
 struct context {
   struct ibv_context *ctx;
   struct ibv_pd *pd;
-  struct ibv_cq *cq;
-  struct ibv_comp_channel *comp_channel;
+  struct ibv_cq *send_cq;
+struct ibv_cq * recv_cq;
+  struct ibv_comp_channel *send_comp_channel;
+  struct ibv_comp_channel *recv_comp_channel;
 
-  pthread_t cq_poller_thread;
+  pthread_t send_cq_poller_thread;
+  pthread_t recv_cq_poller_thread;
 };
 
 struct connection {
   struct rdma_cm_id *id;
   struct ibv_qp *qp;
 
-  int connected;
+  //int connected;
 
   struct ibv_mr *recv_mr;
   struct ibv_mr *send_mr;
@@ -59,7 +54,9 @@ static void build_context(struct ibv_context *verbs);
 static void build_qp_attr(struct ibv_qp_init_attr *qp_attr);
 static char * get_peer_message_region(struct connection *conn);
 static void on_completion(struct ibv_wc *);
-static void * poll_cq(void *);
+static void read_remote(struct connection * conn);
+static void * poll_send_cq(void *);
+static void * poll_recv_cq(void *);
 static void post_receives(struct connection *conn);
 static void register_memory(struct connection *conn);
 static void send_message(struct connection *conn);
@@ -91,7 +88,7 @@ void build_connection(struct rdma_cm_id *id)
   conn->send_state = SS_INIT;
   conn->recv_state = RS_INIT;
 
-  conn->connected = 0;
+  //conn->connected = 0;
 
   register_memory(conn);
   post_receives(conn);
@@ -111,11 +108,16 @@ void build_context(struct ibv_context *verbs)
   s_ctx->ctx = verbs;
 
   TEST_Z(s_ctx->pd = ibv_alloc_pd(s_ctx->ctx));
-  TEST_Z(s_ctx->comp_channel = ibv_create_comp_channel(s_ctx->ctx));
-  TEST_Z(s_ctx->cq = ibv_create_cq(s_ctx->ctx, 10, NULL, s_ctx->comp_channel, 0)); /* cqe=10 is arbitrary */
-  TEST_NZ(ibv_req_notify_cq(s_ctx->cq, 0));
+  TEST_Z(s_ctx->send_comp_channel = ibv_create_comp_channel(s_ctx->ctx));
+  TEST_Z(s_ctx->recv_comp_channel = ibv_create_comp_channel(s_ctx->ctx));
+  TEST_Z(s_ctx->send_cq = ibv_create_cq(s_ctx->ctx, 10, NULL, s_ctx->send_comp_channel, 0)); /* cqe=10 is arbitrary */
+   TEST_Z(s_ctx->recv_cq = ibv_create_cq(s_ctx->ctx, 10, NULL, s_ctx->recv_comp_channel, 0)); /* cqe=10 is arbitrary */
 
-  TEST_NZ(pthread_create(&s_ctx->cq_poller_thread, NULL, poll_cq, NULL));
+  TEST_NZ(ibv_req_notify_cq(s_ctx->send_cq, 0));
+TEST_NZ(ibv_req_notify_cq(s_ctx->recv_cq, 0));
+  TEST_NZ(pthread_create(&s_ctx->send_cq_poller_thread, NULL, poll_send_cq, NULL));
+	TEST_NZ(pthread_create(&s_ctx->recv_cq_poller_thread, NULL, poll_recv_cq, NULL));
+
 }
 
 void build_params(struct rdma_conn_param *params)
@@ -130,8 +132,8 @@ void build_qp_attr(struct ibv_qp_init_attr *qp_attr)
 {
   memset(qp_attr, 0, sizeof(*qp_attr));
 
-  qp_attr->send_cq = s_ctx->cq;
-  qp_attr->recv_cq = s_ctx->cq;
+  qp_attr->send_cq = s_ctx->send_cq;
+  qp_attr->recv_cq = s_ctx->recv_cq;
   qp_attr->qp_type = IBV_QPT_RC;
 
   qp_attr->cap.max_send_wr = 10;
@@ -179,73 +181,94 @@ char * get_peer_message_region(struct connection *conn)
 
 void on_completion(struct ibv_wc *wc)
 {
-  struct connection *conn = (struct connection *)(uintptr_t)wc->wr_id;
+	struct connection *conn = (struct connection *)(uintptr_t)wc->wr_id;
 
-  if (wc->status != IBV_WC_SUCCESS)
-    die("on_completion: status is not IBV_WC_SUCCESS.");
+  	if (wc->status != IBV_WC_SUCCESS)
+    		die("on_completion: status is not IBV_WC_SUCCESS.");
 
-  if (wc->opcode & IBV_WC_RECV) {
-    conn->recv_state++;
+  	if (wc->opcode == IBV_WC_RECV) 
+	{
+    		printf("recv completed successfully.\n");
+		if (conn->recv_msg->type == MSG_MR) 
+		{
+      			memcpy(&conn->peer_mr, &conn->recv_msg->data.mr, sizeof(conn->peer_mr));
+      			post_receives(conn); /* only rearm for MSG_MR */
 
-    if (conn->recv_msg->type == MSG_MR) {
-      memcpy(&conn->peer_mr, &conn->recv_msg->data.mr, sizeof(conn->peer_mr));
-      post_receives(conn); /* only rearm for MSG_MR */
+			read_remote(conn);
+			send_mr(conn);
+    		}
+		if(conn->recv_msg->type == MSG_DONE)
+		{
+			//rdma_disconnect(conn->id);
+			printf("going to disconnect.\n");
 
-      if (conn->send_state == SS_INIT) /* received peer's MR before sending ours, so send ours back */
-        send_mr(conn);
-    }
+			//printf("hashtable1 is %p.\n",hashtable1);
+			//printf("bucketDocker1 is %p.\n",bucketDocker1);
 
-  } else {
-    conn->send_state++;
-    printf("send completed successfully.\n");
-  }
+			send_done(conn);
+		}
 
-  if (conn->send_state == SS_MR_SENT && conn->recv_state == RS_MR_RECV) {
-    struct ibv_send_wr wr, *bad_wr = NULL;
-    struct ibv_sge sge;
+  	} 
+	else if (wc->opcode == IBV_WC_SEND)
+	{
+		printf("send completed successfully.\n");
+	}
+	else if (wc->opcode == IBV_WC_RDMA_READ)
+  	{
+  		printf("read is completion.\n");
 
-    if (s_mode == M_WRITE)
-      printf("received MSG_MR. writing message to remote memory...\n");
-    else
-      printf("received MSG_MR. reading message from remote memory...\n");
+		printf("remote buffer: %s.\n",get_peer_message_region(conn));
 
-    memset(&wr, 0, sizeof(wr));
+                //send_done(conn);
+  	}
+	else if(wc->opcode == IBV_WC_RDMA_WRITE)
+  	{
+  		printf("write is completion.\n");
+  	}
+}
 
-    wr.wr_id = (uintptr_t)conn;
-    wr.opcode = (s_mode == M_WRITE) ? IBV_WR_RDMA_WRITE : IBV_WR_RDMA_READ;
-    wr.sg_list = &sge;
-    wr.num_sge = 1;
-    wr.send_flags = IBV_SEND_SIGNALED;
-    wr.wr.rdma.remote_addr = (uintptr_t)conn->peer_mr.addr;
-    wr.wr.rdma.rkey = conn->peer_mr.rkey;
+void read_remote(struct connection * conn)
+{
+	struct ibv_send_wr wr, *bad_wr = NULL;
+	struct ibv_sge sge;
+	
+	if (s_mode == M_WRITE)
+		printf("received MSG_MR. writing message to remote memory...\n");
+	else
+		printf("received MSG_MR. reading message from remote memory...\n");
+        
+	memset(&wr, 0, sizeof(wr));
 
-    sge.addr = (uintptr_t)conn->rdma_local_region;
-    sge.length = RDMA_BUFFER_SIZE;
-    sge.lkey = conn->rdma_local_mr->lkey;
+	wr.wr_id = (uintptr_t)conn;
+	wr.opcode = (s_mode == M_WRITE) ? IBV_WR_RDMA_WRITE : IBV_WR_RDMA_READ;
+	wr.sg_list = &sge;
+	wr.num_sge = 1;
+	wr.send_flags = IBV_SEND_SIGNALED;
+	wr.wr.rdma.remote_addr = (uintptr_t)conn->peer_mr.addr;
+	wr.wr.rdma.rkey = conn->peer_mr.rkey;
 
-    TEST_NZ(ibv_post_send(conn->qp, &wr, &bad_wr));
+	sge.addr = (uintptr_t)conn->rdma_local_region;
+	//sge.addr = (uintptr_t)conn->recv_msg;
+        //sge.length =sizeof(struct message); 
+	sge.length = RDMA_BUFFER_SIZE;
+        sge.lkey = conn->rdma_local_mr->lkey;
+	//sge.lkey = conn->recv_mr->lkey;
 
-    conn->send_msg->type = MSG_DONE;
-    send_message(conn);
-
-  } else if (conn->send_state == SS_DONE_SENT && conn->recv_state == RS_DONE_RECV) {
-    printf("remote buffer: %s\n", get_peer_message_region(conn));
-    rdma_disconnect(conn->id);
-  }
+	TEST_NZ(ibv_post_send(conn->qp, &wr, &bad_wr));
 }
 
 void on_connect(void *context)
 {
-  ((struct connection *)context)->connected = 1;
+  //((struct connection *)context)->connected = 1;
 }
 
-void * poll_cq(void *ctx)
+void * poll_send_cq(void *ctx)
 {
   struct ibv_cq *cq;
   struct ibv_wc wc;
 
   while (1) {
-    TEST_NZ(ibv_get_cq_event(s_ctx->comp_channel, &cq, &ctx));
+    TEST_NZ(ibv_get_cq_event(s_ctx->send_comp_channel, &cq, &ctx));
     ibv_ack_cq_events(cq, 1);
     TEST_NZ(ibv_req_notify_cq(cq, 0));
 
@@ -255,6 +278,24 @@ void * poll_cq(void *ctx)
 
   return NULL;
 }
+
+void * poll_recv_cq(void *ctx)
+{
+  struct ibv_cq *cq;
+  struct ibv_wc wc;
+
+  while (1) {
+    TEST_NZ(ibv_get_cq_event(s_ctx->recv_comp_channel, &cq, &ctx));
+    ibv_ack_cq_events(cq, 1);
+    TEST_NZ(ibv_req_notify_cq(cq, 0));
+
+    while (ibv_poll_cq(cq, 1, &wc))
+      on_completion(&wc);
+  }
+
+  return NULL;
+}
+
 
 void post_receives(struct connection *conn)
 {
@@ -323,7 +364,7 @@ void send_message(struct connection *conn)
   sge.length = sizeof(struct message);
   sge.lkey = conn->send_mr->lkey;
 
-  while (!conn->connected);
+  //while (!conn->connected);
 
   TEST_NZ(ibv_post_send(conn->qp, &wr, &bad_wr));
 }
@@ -334,6 +375,15 @@ void send_mr(void *context)
 
   conn->send_msg->type = MSG_MR;
   memcpy(&conn->send_msg->data.mr, conn->rdma_remote_mr, sizeof(struct ibv_mr));
+
+  send_message(conn);
+}
+
+void send_done(void *context)
+{
+  struct connection *conn = (struct connection *)context;
+
+  conn->send_msg->type = MSG_DONE;
 
   send_message(conn);
 }

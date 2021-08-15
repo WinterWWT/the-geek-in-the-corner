@@ -1,4 +1,4 @@
-#include "rdma-common.h"
+#include "rdma-client-fun.h"
 
 const int TIMEOUT_IN_MS = 500; /* ms */
 

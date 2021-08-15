@@ -24,6 +24,7 @@ void destroy_connection(void *context);
 void * get_local_message_region(void *context);
 void on_connect(void *context);
 void send_mr(void *context);
+void send_done(void *context);
 void set_mode(enum mode m);
 
 #endif

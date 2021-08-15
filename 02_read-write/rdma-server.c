@@ -1,5 +1,9 @@
-#include "rdma-common.h"
+#include "rdma-server-fun.h"
 
+struct bucket * bucketDocker1 = NULL;
+struct hashTable * hashtable1 = NULL;
+
+static void register_hashtable();
 static int on_connect_request(struct rdma_cm_id *id);
 static int on_connection(struct rdma_cm_id *id);
 static int on_disconnect(struct rdma_cm_id *id);
@@ -8,6 +12,9 @@ static void usage(const char *argv0);
 
 int main(int argc, char **argv)
 {
+  
+	register_hashtable();
+
   struct sockaddr_in6 addr;
   struct rdma_cm_event *event = NULL;
   struct rdma_cm_id *listener = NULL;
@@ -50,6 +57,12 @@ int main(int argc, char **argv)
   rdma_destroy_event_channel(ec);
 
   return 0;
+}
+
+void register_hashtable()
+{
+	hashtable1 = malloc(sizeof(struct hashTable));
+	bucketDocker1 = calloc(HASHTABLESIZE, sizeof(struct bucket));
 }
 
 int on_connect_request(struct rdma_cm_id *id)

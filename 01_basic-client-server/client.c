@@ -14,10 +14,13 @@ const int TIMEOUT_IN_MS = 500; /* ms */
 struct context {
   struct ibv_context *ctx;
   struct ibv_pd *pd;
-  struct ibv_cq *cq;
-  struct ibv_comp_channel *comp_channel;
+  struct ibv_cq *send_cq;	
+  struct ibv_cq *recv_cq;	
+  struct ibv_comp_channel *send_comp_channel;
+  struct ibv_comp_channel  *recv_comp_channel;
 
-  pthread_t cq_poller_thread;
+  pthread_t send_cq_poller_thread;
+  pthread_t recv_cq_poller_thread;
 };
 
 struct connection {
@@ -37,7 +40,8 @@ static void die(const char *reason);
 
 static void build_context(struct ibv_context *verbs);
 static void build_qp_attr(struct ibv_qp_init_attr *qp_attr);
-static void * poll_cq(void *);
+static void * poll_send_cq(void *);
+static void * poll_recv_cq(void *);
 static void post_receives(struct connection *conn);
 static void register_memory(struct connection *conn);
 
@@ -103,19 +107,23 @@ void build_context(struct ibv_context *verbs)
   s_ctx->ctx = verbs;
 
   TEST_Z(s_ctx->pd = ibv_alloc_pd(s_ctx->ctx));
-  TEST_Z(s_ctx->comp_channel = ibv_create_comp_channel(s_ctx->ctx));
-  TEST_Z(s_ctx->cq = ibv_create_cq(s_ctx->ctx, 10, NULL, s_ctx->comp_channel, 0)); /* cqe=10 is arbitrary */
-  TEST_NZ(ibv_req_notify_cq(s_ctx->cq, 0));
+  TEST_Z(s_ctx->send_comp_channel = ibv_create_comp_channel(s_ctx->ctx));
+  TEST_Z(s_ctx->recv_comp_channel = ibv_create_comp_channel(s_ctx->ctx));
+  TEST_Z(s_ctx->send_cq = ibv_create_cq(s_ctx->ctx, 10, NULL, s_ctx->send_comp_channel, 0)); /* cqe=10 is arbitrary */
+  TEST_Z(s_ctx->recv_cq = ibv_create_cq(s_ctx->ctx, 10, NULL, s_ctx->recv_comp_channel, 0)); /* cqe=10 is arbitrary */
+  TEST_NZ(ibv_req_notify_cq(s_ctx->send_cq, 0));
+  TEST_NZ(ibv_req_notify_cq(s_ctx->recv_cq, 0));
 
-  TEST_NZ(pthread_create(&s_ctx->cq_poller_thread, NULL, poll_cq, NULL));
+  TEST_NZ(pthread_create(&s_ctx->send_cq_poller_thread, NULL, poll_send_cq, NULL));
+  TEST_NZ(pthread_create(&s_ctx->recv_cq_poller_thread, NULL, poll_recv_cq, NULL));
 }
 
 void build_qp_attr(struct ibv_qp_init_attr *qp_attr)
 {
   memset(qp_attr, 0, sizeof(*qp_attr));
 
-  qp_attr->send_cq = s_ctx->cq;
-  qp_attr->recv_cq = s_ctx->cq;
+  qp_attr->send_cq = s_ctx->send_cq;
+  qp_attr->recv_cq = s_ctx->recv_cq;
   qp_attr->qp_type = IBV_QPT_RC;
 
   qp_attr->cap.max_send_wr = 10;
@@ -124,13 +132,13 @@ void build_qp_attr(struct ibv_qp_init_attr *qp_attr)
   qp_attr->cap.max_recv_sge = 1;
 }
 
-void * poll_cq(void *ctx)
+void * poll_send_cq(void *ctx)
 {
   struct ibv_cq *cq;
   struct ibv_wc wc;
 
   while (1) {
-    TEST_NZ(ibv_get_cq_event(s_ctx->comp_channel, &cq, &ctx));
+    TEST_NZ(ibv_get_cq_event(s_ctx->send_comp_channel, &cq, &ctx));
     ibv_ack_cq_events(cq, 1);
     TEST_NZ(ibv_req_notify_cq(cq, 0));
 
@@ -140,6 +148,24 @@ void * poll_cq(void *ctx)
 
   return NULL;
 }
+
+void * poll_recv_cq(void *ctx)
+{
+  struct ibv_cq *cq;
+  struct ibv_wc wc;
+
+  while (1) {
+    TEST_NZ(ibv_get_cq_event(s_ctx->recv_comp_channel, &cq, &ctx));
+    ibv_ack_cq_events(cq, 1);
+    TEST_NZ(ibv_req_notify_cq(cq, 0));
+
+    while (ibv_poll_cq(cq, 1, &wc))
+      on_completion(&wc);
+  }
+
+  return NULL;
+}
+
 
 void post_receives(struct connection *conn)
 {
@@ -206,6 +232,7 @@ void on_completion(struct ibv_wc *wc)
 {
   struct connection *conn = (struct connection *)(uintptr_t)wc->wr_id;
 
+  printf("opcode: %d.\n",wc->opcode);
   if (wc->status != IBV_WC_SUCCESS)
     die("on_completion: status is not IBV_WC_SUCCESS.");
 

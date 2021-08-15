@@ -82,6 +82,7 @@ int main(int argc, char **argv)
       break;
   }
 
+  printf("mark.\n");
   rdma_destroy_id(listener);
   rdma_destroy_event_channel(ec);
 
