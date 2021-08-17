@@ -8,7 +8,6 @@ static int on_connect_request(struct rdma_cm_id *id);
 static int on_connection(struct rdma_cm_id *id);
 static int on_disconnect(struct rdma_cm_id *id);
 static int on_event(struct rdma_cm_event *event);
-static void usage(const char *argv0);
 
 int main(int argc, char **argv)
 {
@@ -20,16 +19,6 @@ int main(int argc, char **argv)
   struct rdma_cm_id *listener = NULL;
   struct rdma_event_channel *ec = NULL;
   uint16_t port = 0;
-
-  if (argc != 2)
-    usage(argv[0]);
-
-  if (strcmp(argv[1], "write") == 0)
-    set_mode(M_WRITE);
-  else if (strcmp(argv[1], "read") == 0)
-    set_mode(M_READ);
-  else
-    usage(argv[0]);
 
   memset(&addr, 0, sizeof(addr));
   addr.sin6_family = AF_INET6;
@@ -72,7 +61,8 @@ int on_connect_request(struct rdma_cm_id *id)
   printf("received connection request.\n");
   build_connection(id);
   build_params(&cm_params);
-  sprintf(get_local_message_region(id->context), "message from passive/server side with pid %d", getpid());
+  struct connection * conn = (struct connection *)id->context;
+  sprintf(conn->rdma_local_region, "message from passive/server side with pid %d", getpid());
   TEST_NZ(rdma_accept(id, &cm_params));
 
   return 0;
@@ -107,10 +97,4 @@ int on_event(struct rdma_cm_event *event)
     die("on_event: unknown event.");
 
   return r;
-}
-
-void usage(const char *argv0)
-{
-  fprintf(stderr, "usage: %s <mode>\n  mode = \"read\", \"write\"\n", argv0);
-  exit(1);
 }

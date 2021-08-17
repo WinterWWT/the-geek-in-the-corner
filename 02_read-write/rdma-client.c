@@ -16,17 +16,10 @@ int main(int argc, char **argv)
   struct rdma_cm_id *conn= NULL;
   struct rdma_event_channel *ec = NULL;
 
-  if (argc != 4)
+  if (argc != 3)
     usage(argv[0]);
 
-  if (strcmp(argv[1], "write") == 0)
-    set_mode(M_WRITE);
-  else if (strcmp(argv[1], "read") == 0)
-    set_mode(M_READ);
-  else
-    usage(argv[0]);
-
-  TEST_NZ(getaddrinfo(argv[2], argv[3], NULL, &addr));
+  TEST_NZ(getaddrinfo(argv[1], argv[2], NULL, &addr));
 
   TEST_Z(ec = rdma_create_event_channel());
   TEST_NZ(rdma_create_id(ec, &conn, NULL, RDMA_PS_TCP));
@@ -54,7 +47,9 @@ int on_addr_resolved(struct rdma_cm_id *id)
   printf("address resolved.\n");
 
   build_connection(id);
-  sprintf(get_local_message_region(id->context), "message from active/client side with pid %d", getpid());
+
+  struct connection * conn = (struct connection *)id->context;
+  sprintf((void *)(conn->rdma_local_region), "message from active/client side with pid %d", getpid());
   TEST_NZ(rdma_resolve_route(id, TIMEOUT_IN_MS));
 
   return 0;
@@ -109,6 +104,6 @@ int on_route_resolved(struct rdma_cm_id *id)
 
 void usage(const char *argv0)
 {
-  fprintf(stderr, "usage: %s <mode> <server-address> <server-port>\n  mode = \"read\", \"write\"\n", argv0);
+  fprintf(stderr, "usage: %s <server-address> <server-port>\n", argv0);
   exit(1);
 }
