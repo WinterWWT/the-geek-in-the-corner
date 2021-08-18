@@ -57,10 +57,9 @@ int on_addr_resolved(struct rdma_cm_id *id)
 
 int on_connection(struct rdma_cm_id *id)
 {
-  on_connect(id->context);
-  send_mr(id->context);
+	on_connect(id->context);
 
-  return 0;
+	return 0;
 }
 
 int on_disconnect(struct rdma_cm_id *id)

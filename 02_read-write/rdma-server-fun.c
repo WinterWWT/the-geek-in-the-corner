@@ -127,49 +127,26 @@ void on_completion(struct ibv_wc *wc)
   	if (wc->opcode == IBV_WC_RECV) 
 	{
     		printf("recv completed successfully.\n");
-		if (conn->recv_msg->type == MSG_MR) 
-		{
-      			memcpy(&conn->peer_mr, &conn->recv_msg->data.mr, sizeof(conn->peer_mr));
-      			post_receives(conn); /* only rearm for MSG_MR */
-
-			//read_remote(conn);
-			send_mr(conn);
-    		}
+		
 		if(conn->recv_msg->type == MSG_DONE)
 		{
-			printf("going to disconnect.\n");
+			post_receives(conn);
 
-			//printf("hashtable1 is %p.\n",hashtable1);
-			//printf("bucketDocker1 is %p.\n",bucketDocker1);
-			
-			while(__sync_bool_compare_and_swap(&a,0,0))
-				;
-
-
+			printf("client local -> server remote: %s.\n",conn->rdma_remote_region);
 			send_done(conn);
 		}
-
   	} 
 	else if (wc->opcode == IBV_WC_SEND)
 	{
 		printf("send completed successfully.\n");
-
-		if(conn->send_msg->type == MSG_MR)
-		{
-			write_remote(conn);
-		}
 	}
 	else if (wc->opcode == IBV_WC_RDMA_READ)
   	{
   		printf("read is completion.\n");
-		printf("client remote -> server local buffer: %s.\n",conn->rdma_local_region);
   	}
 	else if(wc->opcode == IBV_WC_RDMA_WRITE)
   	{
   		printf("write is completion.\n");
-		printf("client local -> server remote buffer: %s.\n",conn->rdma_remote_region);
-
-		__sync_fetch_and_add(&a,1);
   	}
 }
 
@@ -331,20 +308,20 @@ void send_message(struct connection *conn)
 
 void send_mr(void *context)
 {
-  struct connection *conn = (struct connection *)context;
+	struct connection *conn = (struct connection *)context;
 
-  conn->send_msg->type = MSG_MR;
-  memcpy(&conn->send_msg->data.mr, conn->rdma_remote_mr, sizeof(struct ibv_mr));
+	conn->send_msg->type = MSG_MR;
+	memcpy(&conn->send_msg->data.mr, conn->rdma_remote_mr, sizeof(struct ibv_mr));
 
-  send_message(conn);
+	send_message(conn);
 }
 
 void send_done(void *context)
 {
-  struct connection *conn = (struct connection *)context;
+	struct connection *conn = (struct connection *)context;
 
-  conn->send_msg->type = MSG_DONE;
+	conn->send_msg->type = MSG_DONE;
 
-  send_message(conn);
+	send_message(conn);
 }
 

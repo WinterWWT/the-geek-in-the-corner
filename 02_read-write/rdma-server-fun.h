@@ -11,8 +11,6 @@
 #define TEST_NZ(x) do { if ( (x)) die("error: " #x " failed (returned non-zero)." ); } while (0)
 #define TEST_Z(x)  do { if (!(x)) die("error: " #x " failed (returned zero/null)."); } while (0)
 
-int a = 0;
-
 struct context {
   struct ibv_context *ctx;
   struct ibv_pd *pd;

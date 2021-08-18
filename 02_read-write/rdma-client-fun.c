@@ -127,15 +127,15 @@ void on_completion(struct ibv_wc *wc)
 
     		if (conn->recv_msg->type == MSG_MR) 
 		{
-      			memcpy(&conn->peer_mr, &conn->recv_msg->data.mr, sizeof(conn->peer_mr));
-      			post_receives(conn); /* only rearm for MSG_MR */
+      			post_receives(conn);
+			memcpy(&conn->peer_mr, &conn->recv_msg->data.mr, sizeof(conn->peer_mr));
 
-			//read_remote(conn);
 			write_remote(conn);
     		}
 		if (conn->recv_msg->type == MSG_DONE)
 		{
-			rdma_disconnect(conn->id);
+			//post_receives(conn);
+			read_remote(conn);
 		}
   	} 
 	else if (wc->opcode == IBV_WC_SEND)
@@ -145,14 +145,13 @@ void on_completion(struct ibv_wc *wc)
 	else if (wc->opcode == IBV_WC_RDMA_READ)
   	{
   		printf("read is completion.\n");
-		printf("server remote -> client local buffer: %s.\n",conn->rdma_local_region);
-
-		//send_done(conn);
+		printf("client local -> server remote -> client remote buffer: %s.\n",conn->rdma_remote_region);
+		
+		rdma_disconnect(conn->id);
   	}
 	else if(wc->opcode == IBV_WC_RDMA_WRITE)
   	{
   		printf("write is completion.\n");
-		printf("server local -> client remote buffer: %s.\n",conn->rdma_remote_region);
 
 		send_done(conn);
   	}
@@ -173,9 +172,9 @@ void read_remote(struct connection * conn)
 	wr.wr.rdma.remote_addr = (uintptr_t)conn->peer_mr.addr;
 	wr.wr.rdma.rkey = conn->peer_mr.rkey;
 
-	sge.addr = (uintptr_t)conn->rdma_local_region;
+	sge.addr = (uintptr_t)conn->rdma_remote_region;
 	sge.length = RDMA_BUFFER_SIZE;
-        sge.lkey = conn->rdma_local_mr->lkey;
+        sge.lkey = conn->rdma_remote_mr->lkey;
 
 	TEST_NZ(ibv_post_send(conn->qp, &wr, &bad_wr));
 }

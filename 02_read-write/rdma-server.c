@@ -61,8 +61,6 @@ int on_connect_request(struct rdma_cm_id *id)
   printf("received connection request.\n");
   build_connection(id);
   build_params(&cm_params);
-  struct connection * conn = (struct connection *)id->context;
-  sprintf(conn->rdma_local_region, "message from passive/server side with pid %d", getpid());
   TEST_NZ(rdma_accept(id, &cm_params));
 
   return 0;
@@ -71,6 +69,8 @@ int on_connect_request(struct rdma_cm_id *id)
 int on_connection(struct rdma_cm_id *id)
 {
   on_connect(id->context);
+
+  send_mr(id->context);
 
   return 0;
 }
