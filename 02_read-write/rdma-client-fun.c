@@ -189,6 +189,8 @@ void read_remote(struct connection * conn, int HoB, uint64_t offset)
 	wr.wr.rdma.remote_addr = ((HoB == 0) ? (uintptr_t)conn->hashtable_mr.addr : ((uintptr_t)conn->bucketDocker_mr.addr + offset));
 	wr.wr.rdma.rkey = ((HoB == 0) ? conn->hashtable_mr.rkey : conn->bucketDocker_mr.rkey);
 
+	memset(conn->rdma_remote_region,0,RDMA_BUFFER_SIZE);
+
 	sge.addr = (uintptr_t)conn->rdma_remote_region;
 	sge.length = ((HoB == 0) ? sizeof(struct hashTable) : sizeof(struct bucket));
         sge.lkey = conn->rdma_remote_mr->lkey;
