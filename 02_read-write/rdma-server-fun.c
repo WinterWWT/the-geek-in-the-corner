@@ -172,6 +172,14 @@ void on_completion(struct ibv_wc *wc)
   	{
   		printf("write is completion.\n");
   	}
+	else if (wc->opcode == IBV_WC_RECV_RDMA_WITH_IMM)
+	{
+		printf("recv write with imm is completion.\n");
+
+		uint32_t imm = ntohl(wc->imm_data);
+
+		printf("imm_data is %d.\n",imm);
+	}
 }
 
 void read_remote(struct connection * conn)

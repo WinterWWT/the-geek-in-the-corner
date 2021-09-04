@@ -11,6 +11,15 @@
 const int BUFFER_SIZE = 1024;
 const int TIMEOUT_IN_MS = 500; /* ms */
 
+struct timespec start, end1,end2,end3,end4;;
+
+float timediff_us(struct timespec start, struct timespec end)
+{
+        float cost = (float)(end.tv_sec - start.tv_sec) * 1000000 + (float)(end.tv_nsec - start.tv_nsec) / 1000;
+
+        return cost;
+}
+
 struct context {
   struct ibv_context *ctx;
   struct ibv_pd *pd;
@@ -230,26 +239,35 @@ int on_addr_resolved(struct rdma_cm_id *id)
 
 void on_completion(struct ibv_wc *wc)
 {
-  struct connection *conn = (struct connection *)(uintptr_t)wc->wr_id;
+  	struct connection *conn = (struct connection *)(uintptr_t)wc->wr_id;
 
-  printf("opcode: %d.\n",wc->opcode);
-  if (wc->status != IBV_WC_SUCCESS)
-    die("on_completion: status is not IBV_WC_SUCCESS.");
+  	//printf("opcode: %d.\n",wc->opcode);
+  	if (wc->status != IBV_WC_SUCCESS)
+    		die("on_completion: status is not IBV_WC_SUCCESS.");
 
-  if (wc->opcode & IBV_WC_RECV)
-    printf("received message: %s\n", conn->recv_region);
-  else if (wc->opcode == IBV_WC_SEND)
-    printf("send completed successfully.\n");
-  else
-    die("on_completion: completion isn't a send or a receive.");
+  	if (wc->opcode & IBV_WC_RECV)
+    		printf("received message: %s\n", conn->recv_region);
+  	else if (wc->opcode == IBV_WC_SEND)
+  	{
+    		printf("send completed successfully.\n");
 
-  if (++conn->num_completions == 2)
-    rdma_disconnect(conn->id);
+		clock_gettime(CLOCK_REALTIME,&end1);
+		float cost = timediff_us(start,end1);
+
+		printf("send cost time is %fus.\n",cost);
+  	}
+  	else
+    		die("on_completion: completion isn't a send or a receive.");
+
+  	if (++conn->num_completions == 2)
+    		rdma_disconnect(conn->id);
 }
 
 int on_connection(void *context)
 {
-  struct connection *conn = (struct connection *)context;
+	clock_gettime(CLOCK_REALTIME,&start);  	
+
+	struct connection *conn = (struct connection *)context;
   struct ibv_send_wr wr, *bad_wr = NULL;
   struct ibv_sge sge;
 

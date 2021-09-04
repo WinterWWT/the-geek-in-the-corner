@@ -121,7 +121,7 @@ void on_completion(struct ibv_wc *wc)
 
 		post_receives(conn);
 
-    		if (conn->recv_msg->type == CONN) 
+		if (conn->recv_msg->type == CONN) 
 		{
 			//printf("start to establish connection.\n");
 			
@@ -167,11 +167,29 @@ void on_completion(struct ibv_wc *wc)
   		printf("read is completion.\n");
 		
 		//rdma_disconnect(conn->id);
+		gettime(&end1);
+                float cost1 = timediff_us(start,end1);
+
+                printf("read cost time is %f us.\n",cost1);
   	}
 	else if(wc->opcode == IBV_WC_RDMA_WRITE)
   	{
   		printf("write is completion.\n");
+		gettime(&end3);
+		float cost2 = timediff_us(end2,end3);
+
+		printf("write cost time is %f us.\n",cost2);
+
   	}
+	else if (wc->opcode == IBV_WC_RECV_RDMA_WITH_IMM)
+	{
+		printf("write with imm completion.\n");
+
+		uint32_t imm = ntohl(wc->imm_data);
+		
+		printf("imm is %d.\n",imm);	
+	}
+
 }
 
 void read_remote(struct connection * conn, int HoB, uint64_t offset)
@@ -204,7 +222,6 @@ void write_remote(struct connection * conn, int HoB, uint64_t offset)
         struct ibv_sge sge;
 
         memset(&wr, 0, sizeof(wr));
-
         wr.wr_id = (uintptr_t)conn;
         wr.opcode = IBV_WR_RDMA_WRITE;
         wr.sg_list = &sge;
@@ -220,20 +237,54 @@ void write_remote(struct connection * conn, int HoB, uint64_t offset)
         TEST_NZ(ibv_post_send(conn->qp, &wr, &bad_wr));
 }
 
+void write_with_imm(struct connection * conn, uint32_t imm)
+{
+	struct ibv_send_wr wr, *bad_wr = NULL;
+	struct ibv_sge sge;
+
+	memset(&wr,0,sizeof(struct ibv_send_wr));
+	wr.wr_id = (uintptr_t)conn;
+	wr.opcode = IBV_WR_RDMA_WRITE_WITH_IMM;
+	wr.sg_list = &sge;
+	wr.num_sge = 1;
+	wr.send_flags = IBV_SEND_SIGNALED;
+	wr.imm_data = imm;
+
+	wr.wr.rdma.remote_addr = (uintptr_t)conn->hashtable_mr.addr;
+	wr.wr.rdma.rkey = conn->hashtable_mr.rkey;
+
+	sge.addr = (uintptr_t)conn->rdma_local_region;
+	sge.length = sizeof(struct hashTable);
+	sge.lkey = conn->rdma_local_mr->lkey;
+	
+	//gettime(&start);
+	TEST_NZ(ibv_post_send(conn->qp,&wr,&bad_wr));
+
+	//post_receives(conn);
+}
 
 void on_connect(void *context)
 {
 	printf("connection completed.\n");
 	struct connection *conn = (struct connection *)context;
 	
-	struct hashTable * ht1 = (struct hashTable *)conn->rdma_remote_region;
-        read_remote(conn,0,0);
-        printf("ht1->size: %d.\n",ht1->size);
+//	struct hashTable * ht2 = (struct hashTable *)conn->rdma_local_region;
+//	ht2->size = 1;
+//	uint32_t imm = htonl(11);
+//	//gettime(&start);
+//	write_with_imm(conn,imm);
 
+	gettime(&start);
+	struct hashTable * ht1 = (struct hashTable *)conn->rdma_remote_region;
+	read_remote(conn,0,0);
+	printf("ht1->size: %d.\n",ht1->size);
+
+	gettime(&end2);
 	struct hashTable * ht2 = (struct hashTable *)conn->rdma_local_region;
 	ht2->size = ht1->size + 1;
 	write_remote(conn,0,0);
 	
+	gettime(&end4);
 	char *key1 = "user6284781860667377211";
 	uint64_t offset1 = (murmurhash(key1,strlen(key1),SEED) % HASHTABLESIZE) * sizeof(struct bucket);
 	struct bucket *bucket1 = (struct bucket *)conn->rdma_local_region;
@@ -241,34 +292,16 @@ void on_connect(void *context)
 	bucket1->valuePtr = (void *)0x1a2b3c;
 	bucket1->valueLen = 10;
 	write_remote(conn,1,offset1);
+	float cost3 = timediff_us(end2,end4);
+	printf("time between two write is %f.\n",cost3);
 
+	gettime(&end5);
 	struct hashTable * ht3 = (struct hashTable *)conn->rdma_remote_region;
-        read_remote(conn,0,0);
-        printf("ht3->size: %d.\n",ht3->size);
-	
-	struct hashTable * ht4 = (struct hashTable *)conn->rdma_local_region;
-        ht4->size = ht3->size + 1;
-        write_remote(conn,0,0);
-
-	char *key2 = "user8517097267634966620";
-	uint64_t offset2 = (murmurhash(key2,strlen(key2),SEED) % HASHTABLESIZE) * sizeof(struct bucket);
-        struct bucket *bucket2 = (struct bucket *)conn->rdma_local_region;
-        strcpy(bucket2->key,key2);
-        bucket2->valuePtr = (void *)0x4d5e6f;
-        bucket2->valueLen = 20;
-        write_remote(conn,1,offset2);
-
-	struct hashTable * ht5 = (struct hashTable *)conn->rdma_remote_region;
 	read_remote(conn,0,0);
-	printf("ht5->size: %d.\n",ht5->size);
-
-	struct bucket *bucket3 = (struct bucket *)conn->rdma_remote_region;
-	char *key3 = "user8517097267634966620";
-        uint64_t offset3 = (murmurhash(key3,strlen(key3),SEED) % HASHTABLESIZE) * sizeof(struct bucket);
-        read_remote(conn,1,offset3);	
-	printf("bucket->key is %s.\n",bucket3->key);
-	printf("bucket->valuePtr is %p.\n",bucket3->valuePtr);
-	printf("bucket->valueLen is %d.\n",bucket3->valueLen);
+	float cost4 = timediff_us(start,end5);
+        printf("time between two read is %f.\n",cost4);
+			
+	printf("ht3->size: %d.\n",ht3->size);
 }
 
 void * poll_send_cq(void *ctx)

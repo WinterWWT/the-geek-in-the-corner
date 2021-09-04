@@ -149,15 +149,11 @@ static void on_disconnect(struct rdma_cm_id *id)
 
 int main(int argc, char **argv)
 {
-  rc_init(
-    on_pre_conn,
-    on_connection,
-    on_completion,
-    on_disconnect);
+  	rc_init(on_pre_conn,on_connection,on_completion,on_disconnect);
 
-  printf("waiting for connections. interrupt (^C) to exit.\n");
+  	printf("waiting for connections. interrupt (^C) to exit.\n");
 
-  rc_server_loop(DEFAULT_PORT);
+  	rc_server_loop(DEFAULT_PORT);
 
-  return 0;
+  	return 0;
 }

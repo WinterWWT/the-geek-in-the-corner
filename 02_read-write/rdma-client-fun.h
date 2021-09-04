@@ -13,6 +13,20 @@
 #define TEST_NZ(x) do { if ( (x)) die("error: " #x " failed (returned non-zero)." ); } while (0)
 #define TEST_Z(x)  do { if (!(x)) die("error: " #x " failed (returned zero/null)."); } while (0)
 
+struct timespec start, end1,end2,end3,end4,end5;
+
+void gettime(struct timespec *time)
+{
+	clock_gettime(CLOCK_REALTIME,time);
+}
+
+float timediff_us(struct timespec start, struct timespec end)
+{
+	float cost = (end.tv_sec - start.tv_sec) * 1000000 + (float)(end.tv_nsec - start.tv_nsec) / 1000;
+
+	return cost;
+}
+
 struct message 
 {
 	enum 
