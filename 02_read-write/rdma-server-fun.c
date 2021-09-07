@@ -178,7 +178,16 @@ void on_completion(struct ibv_wc *wc)
 
 		uint32_t imm = ntohl(wc->imm_data);
 
-		printf("imm_data is %d.\n",imm);
+		//printf("imm_data is %d.\n",imm);
+
+		if (imm == 0)
+		{
+			//read
+		}
+		else if (imm == 1)
+		{
+			//write
+		}
 	}
 }
 

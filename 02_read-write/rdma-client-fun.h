@@ -20,9 +20,9 @@ void gettime(struct timespec *time)
 	clock_gettime(CLOCK_REALTIME,time);
 }
 
-float timediff_us(struct timespec start, struct timespec end)
+long int timediff_us(struct timespec start, struct timespec end)
 {
-	float cost = (end.tv_sec - start.tv_sec) * 1000000 + (float)(end.tv_nsec - start.tv_nsec) / 1000;
+	long int cost = (end.tv_sec - start.tv_sec) * 1000000 + (end.tv_nsec - start.tv_nsec) / 1000;
 
 	return cost;
 }
@@ -83,13 +83,16 @@ struct connection
 	int flag;
 };
 
-#define KEYSIZE 20
+#define KEYSIZE 19
+#define VALUESIZE 16
+#define OPCODESIZE 6
+
 #define HASHTABLESIZE 20000
 #define SEED 0x9c8d7e6f
 
 struct bucket
 {
-        char key[KEYSIZE];
+        char key[KEYSIZE + 1];
         void * valuePtr;
         int valueLen;
 };

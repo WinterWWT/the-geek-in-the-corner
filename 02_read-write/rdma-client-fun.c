@@ -7,6 +7,13 @@ static void build_qp_attr(struct ibv_qp_init_attr *qp_attr);
 static void on_completion(struct ibv_wc *);
 static void read_remote(struct connection *conn, int HoB, uint64_t offset);
 static void write_remote(struct connection *conn, int HoB, uint64_t offset);
+
+static void get(struct connection *conn,char *key);
+static void put(struct connection *conn,char *key,char *value);
+
+static void load_workload(struct connection *conn);
+static void run_workload(struct connection *conn);
+
 static void * poll_send_cq(void *);
 static void * poll_recv_cq(void *);
 static void post_receives(struct connection *conn);
@@ -168,17 +175,17 @@ void on_completion(struct ibv_wc *wc)
 		
 		//rdma_disconnect(conn->id);
 		gettime(&end1);
-                float cost1 = timediff_us(start,end1);
+                long int cost1 = timediff_us(start,end1);
 
-                printf("read cost time is %f us.\n",cost1);
+                printf("read cost time is %ld us.\n",cost1);
   	}
 	else if(wc->opcode == IBV_WC_RDMA_WRITE)
   	{
   		printf("write is completion.\n");
 		gettime(&end3);
-		float cost2 = timediff_us(end2,end3);
+		long int cost2 = timediff_us(end2,end3);
 
-		printf("write cost time is %f us.\n",cost2);
+		printf("write cost time is %ld us.\n",cost2);
 
   	}
 	else if (wc->opcode == IBV_WC_RECV_RDMA_WITH_IMM)
@@ -292,16 +299,113 @@ void on_connect(void *context)
 	bucket1->valuePtr = (void *)0x1a2b3c;
 	bucket1->valueLen = 10;
 	write_remote(conn,1,offset1);
-	float cost3 = timediff_us(end2,end4);
-	printf("time between two write is %f.\n",cost3);
+	long int cost3 = timediff_us(end2,end4);
+	printf("time between two write is %ld.\n",cost3);
 
 	gettime(&end5);
 	struct hashTable * ht3 = (struct hashTable *)conn->rdma_remote_region;
 	read_remote(conn,0,0);
-	float cost4 = timediff_us(start,end5);
-        printf("time between two read is %f.\n",cost4);
+	long int cost4 = timediff_us(start,end5);
+        printf("time between two read is %ld.\n",cost4);
 			
 	printf("ht3->size: %d.\n",ht3->size);
+}
+
+void put(struct connection *conn, char *key, char *value)
+{
+	write_with_imm(conn,);
+}
+
+void get(struct connection *conn, char *key)
+{
+	
+}
+
+void load_workload(struct connection * conn)
+{
+	TEST_Z(FILE *f = fopen("dataseta_load.txt","r"));
+
+	int BUFLEN = OPCODESIZE + KEYSIZE + VALUESIZE + 3;	
+	char buf[BUFLEN + 1];
+
+	char * opcode = malloc(OPCODESIZE + 1);
+        har * key = malloc(KEYSIZE + 1);
+        char * value = malloc(VALUESIZE + 1);
+	
+	while (fgets(buf,BUFLEN,f))
+        {
+                strncpy(opcode, buf, 6);
+		opcode[OPCODESIZE] = '\0';
+
+                strncpy(key,buf + 7,19);
+                key[KEYSIZE] = '\0';
+
+                strncpy(value, buf + 27,16);
+                value[VALUESIZE] = '\0';
+
+                if (strcmp(opcode, "INSERT") == 0)
+                {
+			put(conn,key,value);
+                }
+		else if (strcmp(opcode, "READAA") == 0)
+		{
+			printf("shouldn't have READ in load workload.\n");
+		}
+		else if (strcmp(opcode, "UPDATE") == 0)
+		{
+			printf("shouldn't have UPDATE in load workload.\n");
+		}
+        }
+
+	free(opcode);
+	free(key);
+	free(value);
+
+	fclose(f);
+}
+
+void run_workload(struct connection * conn)
+{
+        TEST_Z(FILE *f = fopen("dataseta_run.txt","r"));
+
+       	int BUFLEN = OPCODESIZE + KEYSIZE + VALUESIZE + 3;
+
+       	char buf[BUFLEN + 1];
+
+        char * opcode = malloc(OPCODESIZE + 1);
+        har * key = malloc(KEYSIZE + 1);
+        char * value = malloc(VALUESIZE + 1);
+
+        while (fgets(buf,BUFLEN,f))
+        {
+                strncpy(opcode, buf, 6);
+                opcode[OPCODESIZE] = '\0';
+
+                strncpy(key,buf + 7,19);
+                key[KEYSIZE] = '\0';
+
+                if (strcmp(opcode, "INSERT") == 0)
+                {
+                	printf("shouldn't have INSERT in run workload.\n");
+                }
+                else if (strcmp(opcode, "READAA") == 0)
+                {
+			get(conn,key);
+		}
+		else if (strcmp(opcode, "UPDATE") == 0)
+                {
+			strncpy(value, buf + 27,16);
+			value[VALUESIZE] = '\0';
+
+			put(conn,key,value);
+                }
+        }
+
+        free(opcode);
+        free(key);
+        free(value);
+
+        fclose(f);
 }
 
 void * poll_send_cq(void *ctx)
